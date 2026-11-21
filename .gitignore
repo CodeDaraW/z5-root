@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────
+# 总原则：本仓库只追踪「人能读、能审、能复现」的东西 —— 源码、脚本、文档。
+# 一切编译产物、设备数据、密钥材料、工具链二进制都不入库。
+# 判据：删掉文件后，能否用仓库里的源码 + 文档步骤重新生成？
+#       能 → 不入库；不能 → 先补文档，再决定。
+# 推论：凡是在自己设备上重扫/重 dump 就能得到的派生物（unit 清单、提取出的证书模数等）
+#       同样不入库 —— 别人应该照着代码复现，而不是看到我这台机器的具体值。
+# ─────────────────────────────────────────────────────────────
+
+# ── 设备私有数据 ──────────────────────────────────────────────
+# TA 分区含 IMEI / DRM keys / 运营商配置，分区镜像含机器唯一标识。
+# 重建方式见 docs/guides/reproduce.md，设备通道见 docs/guides/device-access.md
+artifacts/**
+!artifacts/README.md
+
+# 从 TA 解出来的二进制（bootconfig 等），可由 artifacts/ta/TA.img 重新生成
+analysis/ta/*.bin
+
+# 验收脚本的历史输出目录（迁移前的相对路径，防止旧脚本写回仓库）
+apps/report/
+
+# ── 编译产物：源码在仓库里，这些都能重编 ──────────────────────
+# APK 内的两个 aarch64 裸 ELF，由 apps/z5root/build-assets.sh 从
+# analysis/probes/device/probe_app.c 与 analysis/probes/su/su.c 生成
+apps/z5root/assets/su
+apps/z5root/assets/z5root
+apps/z5root/build/
+apps/sutest/build/
+
+# APK 签名密钥：build.sh 首次运行会自动生成（一次性自签名，密码在脚本里）
+apps/z5root/*.keystore
+
+# newflasher：Mach-O arm64 可执行文件，由 tools/newflasher.c + libusb 编译
+# 编译步骤见 docs/guides/build-newflasher.md
+tools/newflasher
+
+# libusb 源码包：上游可重新下载，版本与校验信息见 docs/guides/build-newflasher.md
+tools/libusb.tar.bz2
+
+# 探针：只留源码。.o 与裸 ELF 都是本机编译产物
+analysis/probes/device/*
+!analysis/probes/device/*.c
+!analysis/probes/device/*.S
+!analysis/probes/device/*.py
+!analysis/probes/device/*.sh
+analysis/probes/su/su
+analysis/probes/su/*.o
+
+# ── 离线工具链（体积大、非本项目代码）────────────────────────
+# JDK17 与 Android cmdline-tools，约 460MB，来源与版本见 docs/guides/build-apk.md
+tools/jdk17/
+tools/sdk/
+tools/libusb-1.0.27/
+
+# ── 第三方源码树 ──────────────────────────────────────────────
+# 内核源码 / 反编译参考，来源见 vendor/README.md（该说明本身入库）
+vendor/*
+!vendor/README.md
+
+# ── 本地工作记录 ──────────────────────────────────────────────
+# 编辑器 / 助手在本机生成的目录，不属于项目内容
+.workbuddy/
+
+# ── 通用 ──────────────────────────────────────────────────────
+.DS_Store
+*.o
+*.pyc
+__pycache__/

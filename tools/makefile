@@ -1,0 +1,142 @@
+# 交叉编译工具链：上游写的是作者机器上的绝对路径，改成从 PATH 取，
+# 需要指定时在命令行覆盖，例如:
+#   make newflasher.arm64 ARMCC64=/path/to/aarch64-linux-gnu-gcc
+ARMCC ?= arm-linux-gnueabi-gcc
+ARMSTRIP ?= arm-linux-gnueabi-strip
+
+ARMCC64 ?= aarch64-linux-gnu-gcc
+ARMSTRIP64 ?= aarch64-linux-gnu-strip
+
+NDK_BUILD ?= NDK_PROJECT_PATH=. ndk-build NDK_APPLICATION_MK=./Application.mk
+
+CCWIN=i686-w64-mingw32-gcc
+CCWINSTRIP=i686-w64-mingw32-strip
+WINDRES=i686-w64-mingw32-windres
+
+OS := $(shell uname)
+VERSION := $(shell sed 's/^.*VERSION //' version.h)
+
+CC=gcc
+STRIP=strip
+INSTALL=install
+
+DESTDIR=
+LIBS=
+
+CFLAGS?=-Wall -g -O2
+ifeq ($(OS),Darwin)
+# Homebrew 的默认前缀；libusb 装在别处时 make LIBUSB_CFLAGS=-I... 覆盖
+LIBUSB_CFLAGS ?= -I/usr/local/include/libusb-1.0
+CFLAGS+= $(LIBUSB_CFLAGS)
+LIBS+=-lusb-1.0
+endif
+CROSS_CFLAGS=${CFLAGS} -I include -I zlib-1.3.2 -L zlib-1.3.2 -I expat-2.2.9/lib -L expat-2.2.9/lib/.libs
+
+.PHONY: default
+default: newflasher
+
+.PHONY: cross
+cross: newflasher.exe newflasher.x64 newflasher.i386 newflasher.arm32 newflasher.arm64 newflasher.arm64_pie
+
+.PHONY: libs
+libs:
+	@mkdir -p include
+	@test -d zlib-1.3.2 && echo "" || wget https://zlib.net/zlib-1.3.2.tar.gz
+	@test -d zlib-1.3.2 && echo "" || tar xzf zlib-1.3.2.tar.gz
+	@rm -rf zlib-1.3.2.tar.gz
+	@test -d expat-2.2.9 && echo "" || wget https://github.com/libexpat/libexpat/releases/download/R_2_2_9/expat-2.2.9.tar.gz
+	@test -d expat-2.2.9 && echo "" || tar xzf expat-2.2.9.tar.gz
+	@rm -rf expat-2.2.9.tar.gz
+	@test -d openssl-4.0.2 && echo "" || wget https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz
+	@test -d openssl-4.0.2 && echo "" || tar xzf openssl-4.0.2.tar.gz
+	@rm -rf openssl-4.0.2.tar.gz
+	@test -d curl-8.22.0 && echo "" || wget https://curl.se/download/curl-8.22.0.tar.gz
+	@test -d curl-8.22.0 && echo "" || tar xzf curl-8.22.0.tar.gz
+	@rm -rf curl-8.22.0.tar.gz
+	@test -d libxml2-2.15.4 && echo "" || wget https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz
+	@test -d libxml2-2.15.4 && echo "" || tar xf libxml2-2.15.4.tar.xz
+	@rm -rf libxml2-2.15.4.tar.xz
+	@test -d libiconv-1.19 && echo "" || wget https://ftp.gnu.org/gnu/libiconv/libiconv-1.19.tar.gz
+	@test -d libiconv-1.19 && echo "" || tar xzf libiconv-1.19.tar.gz
+	@rm -rf libiconv-1.19.tar.gz
+
+newflasher: newflasher.c version.h
+	${CC} ${CFLAGS} $< -o $@ -lz -lexpat ${LIBS}
+
+newflasher.exe: libs newflasher.c version.h
+	@cd zlib-1.3.2 && CC=${CCWIN} ./configure --static && make clean && make
+	@cd expat-2.2.9 && CC="${CCWIN} -fPIC" ./configure --enable-static --disable-shared --host=i686-w64-mingw32 && make clean && make
+	@test -f include/GordonGate.h && echo "" || wget https://github.com/munjeni/newflasher/raw/refs/heads/master/Sony_Mobile_Software_Update_Drivers_x64_Setup.msi -O GordonGate
+	@test -f include/GordonGate.h && echo "" || xxd --include GordonGate > include/GordonGate.h
+	@rm -rf GordonGate
+	sed "s/@VERSION@/$(VERSION)/" newflasher.rc.in >newflasher.rc
+	${WINDRES} newflasher.rc -O coff -o newflasher.res
+	${CCWIN} ${CROSS_CFLAGS} -static newflasher.c newflasher.res -o newflasher.exe -lsetupapi -lz -lexpat
+	${CCWINSTRIP} newflasher.exe
+
+downloader.exe: libs downloader.c version.h
+	@cd openssl-4.0.2 && CC=${CCWIN} WINDRES=${WINDRES} ./Configure mingw no-shared no-dso no-tests && make clean && make
+	@R=$$(pwd) && cd curl-8.22.0 && export CPATH="$$R/openssl-4.0.2/include" && export LIBRARY_PATH="$$R/openssl-4.0.2" && CC=${CCWIN} WINDRES=${WINDRES} CFLAGS="-D_WIN32_WINNT=0x0601 -DWINVER=0x0601" CPPFLAGS="-D_WIN32_WINNT=0x0601 -DWINVER=0x0601" LDFLAGS="-L$$R/openssl-4.0.2 -lws2_32 -lgdi32 -lcrypt32 -lbcrypt" LIBS="-lws2_32 -lgdi32 -lcrypt32 -lbcrypt" ./configure --enable-static --disable-shared --with-openssl=$$R/openssl-4.0.2 --without-libpsl --without-libssh2 --without-libssh --disable-ldap --host=i686-w64-mingw32 && make clean && make
+	@cd libiconv-1.19 && CC=${CCWIN} ./configure --enable-static --disable-shared --host=i686-w64-mingw32 && make clean && make
+	@cd libxml2-2.15.4 && CC=${CCWIN} ./configure --enable-static --disable-shared --without-iconv --without-modules --host=i686-w64-mingw32 && make clean && make
+	sed "s/@VERSION@/$(VERSION)/" newflasher.rc.in >downloader.rc
+	@sed -i "s/Xperia Command Line Flasher/Xperia FW Downloader/" downloader.rc
+	@sed -i "s/newflasher/downloader/" downloader.rc
+	@sed -i "s/downloader.ico/newflasher.ico/" downloader.rc
+	${WINDRES} downloader.rc -O coff -o downloader.res
+	${CCWIN} ${CROSS_CFLAGS} -static -DCURL_STATICLIB -DLIBXML_STATIC -DXML_STATIC -Iopenssl-4.0.2/include -Icurl-8.22.0/include -Ilibxml2-2.15.4/include -Ilibiconv-1.19/include -Lopenssl-4.0.2 -Lcurl-8.22.0/lib/.libs -Llibxml2-2.15.4/.libs -Llibiconv-1.19/lib/.libs downloader.c downloader.res -o downloader.exe -lsetupapi -lcurl -lxml2 -lssl -lcrypto -liconv -lbcrypt -lcrypt32 -liphlpapi -lws2_32 -lgdi32
+	${CCWINSTRIP} downloader.exe
+
+newflasher.x64: libs newflasher.c version.h
+	@cd zlib-1.3.2 && CC=gcc ./configure --static && make clean && make
+	@cd expat-2.2.9 && CC="gcc -fPIC" ./configure --enable-static --disable-shared && make clean && make
+	${CC} ${CROSS_CFLAGS} -static newflasher.c -o newflasher.x64 -lz -lexpat
+	${STRIP} newflasher.x64
+
+newflasher.i386: libs newflasher.c version.h
+	@cd zlib-1.3.2 && CC="gcc -m32" ./configure --static && make clean && make
+	@cd expat-2.2.9 && CC="gcc -m32 -fPIC" ./configure --enable-static --disable-shared && make clean && make
+	${CC} ${CROSS_CFLAGS} -m32 -static newflasher.c -o newflasher.i386 -lz -lexpat
+	${STRIP} newflasher.i386
+
+newflasher.arm32: libs newflasher.c version.h
+	@cd zlib-1.3.2 && CC=${ARMCC} ./configure --static && make clean && make
+	@cd expat-2.2.9 && CC="${ARMCC} -fPIC" ./configure --enable-static --disable-shared --host=arm-linux-gnueabi && make clean && make
+	${ARMCC} ${CROSS_CFLAGS} -static newflasher.c -o newflasher.arm32 -lz -lexpat
+	${ARMSTRIP} newflasher.arm32
+
+newflasher.arm64: libs newflasher.c version.h
+	@cd zlib-1.3.2 && CC=${ARMCC64} ./configure --static && make clean && make
+	@cd expat-2.2.9 && CC="${ARMCC64} -fPIC" ./configure --enable-static --disable-shared --host=aarch64-linux-gnu && make clean && make
+	${ARMCC64} ${CROSS_CFLAGS} -static newflasher.c -o newflasher.arm64 -lz -lexpat
+	${ARMSTRIP64} newflasher.arm64
+
+newflasher.arm64_pie:
+	@echo "Building Android pie binary"
+	@test -d zlib && echo "" || git clone https://android.googlesource.com/platform/external/zlib
+	@test -d expat && echo "" || git clone https://android.googlesource.com/platform/external/expat
+	${NDK_BUILD}
+	@cp -fr libs/arm64-v8a/newflasher.arm64_pie ./newflasher.arm64_pie
+
+newflasher.1.gz: newflasher.1
+	gzip -9fkn $<
+
+newflasher.spec:
+	sed "s/@VERSION@/$(VERSION)/" newflasher.spec.in > newflasher.spec
+
+.PHONY: install
+install: newflasher newflasher.1.gz
+	$(INSTALL) -o root -g root -d $(DESTDIR)/usr/bin
+	$(INSTALL) -o root -g root -m 755 -s newflasher $(DESTDIR)/usr/bin/
+	$(INSTALL) -o root -g root -d $(DESTDIR)/usr/share/man/man1
+	$(INSTALL) -o root -g root -m 644 newflasher.1.gz $(DESTDIR)/usr/share/man/man1
+
+.PHONY: clean
+clean:
+	rm -rf *.gz *.o *.rc *.res obj libs zlib expat zlib-1.3.2 expat-2.2.9 openssl-4.0.2 libxml2-2.15.4 libiconv-1.19 curl-8.22.0 include
+
+.PHONY: distclean
+distclean:
+	rm -rf *.gz *.o *.rc *.res obj libs zlib expat newflasher.exe newflasher.x64 newflasher.i386
+	rm -rf newflasher.arm32 newflasher.arm64 newflasher.arm64_pie newflasher
+	rm -rf zlib-1.3.2 expat-2.2.9 openssl-4.0.2 libxml2-2.15.4 libiconv-1.19 curl-8.22.0 include

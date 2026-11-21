@@ -1,0 +1,35 @@
+> 本文件是上游 `munjeni/newflasher` v61 的 readme 原文，保留以便对照构建参数与用法。
+> 本仓库自己的构建步骤见 `docs/guides/build-newflasher.md`；下文 `~/bin`、`~/.local/share/`
+> 是上游给出的通用安装示例，不是本项目的目录约定。
+
+This *experimental* software allows you to flash firmwares acquired through [XperiFirm](https://forum.xda-developers.com/crossdevice-dev/sony/pc-xperifirm-xperia-firmware-downloader-t2834142) to Sony phones including and newer than the XZ  Premium. 
+
+### Usage
+
+- Place the newflasher executable into the firmware folder (usually created by XperiFirm)
+- Run Newflasher. Everything inside the folder will be flashed, so remember to remove files you don't want on your device beforehand. 
+- To take a trim area backup without flashing anything, run `newflasher Dump-trim-area`. It writes the same restorable `tadump/tadump_1.ta` and `tadump_2.ta` as the flashing run does and then exits.
+
+### Build (native)
+
+Install `gcc`, `make` and development versions of `zlib` and `expat`. On Debian-based systems such as Mint and Ubuntu, this means:
+
+    sudo apt-get install gcc libexpat-dev libz-dev make
+
+On Darwin you need to install `libusb-1.0`, this means:
+
+    brew install libusb
+
+Download, build and install, assuming that `~/bin` is in `$PATH`:
+
+    git clone https://github.com/munjeni/newflasher.git ~/.local/share/newflasher
+    make -C ~/.local/share/newflasher
+    ln -s ~/.local/share/newflasher/newflasher ~/bin
+
+### Build (cross, static)
+
+`make newflasher.[exe/x64/i386/arm32/arm64/arm64_pie]`, exe referring to a Windows build, the rest being for Linux Android and Darwin.
+
+### Discussion
+
+[XDA Thread](https://forum.xda-developers.com/crossdevice-dev/sony/progress-newflasher-xperia-command-line-t3619426). 
